@@ -77,9 +77,7 @@ let upload = multer({
         },
         //设置文件名称
         filename: function (req, file, cb) {
-            const extname = path.extname(file.originalname);
-            const name = file.originalname.split('.')[0]
-            let fileName = name + '-' + Date.now() + extname;
+            let fileName = file.originalname;
             //fileName就是上传文件的文件名
             cb(null, fileName);
         }
@@ -87,11 +85,15 @@ let upload = multer({
 });
 
 // api 上传小文件
-app.post('/upload', upload.single('file'),(req, res) => {
+app.post('/upload', upload.single('file'), (req, res) => {
+    console.log(444, req)
+    const { filename } = req.file
+    const filePath = path.join(uploadPath, filename)
     return res.json({
       code: 0,
       data: {
-        ...req.file
+        ...req.file,
+        url: filePath
       },
       message: '上传成功'
     })
@@ -156,7 +158,10 @@ app.post('/file/merge_chunks', (req, res) => {
     return res.json({
         code: 0,
         data: {
-            ...req.file
+            name,
+            total,
+            hash,
+            url: filePath
         },
         message: '全部上传成功'
     })

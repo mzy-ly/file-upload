@@ -77,7 +77,7 @@
                     <el-table-column prop="name" label="文件名">
                         <template slot-scope="scope">
                             <div>
-                                <el-link type="primary" href="https://element.eleme.io" target="_blank"
+                                <el-link type="primary" :href="scope.row.url" target="_blank"
                                     v-text="scope.row.name"></el-link>
                             </div>
                         </template>
@@ -197,7 +197,7 @@
                     if (code === 0) {
                         this.progressBar = 100;
                         this.fileList[0].upload_status = this.progressBar + "%";
-                        this.fileList[0].url = data.path
+                        this.fileList[0].url = data.url
                         this.$message.success(message);
                         this.speed = "";
                         this.loadingStatus = false;
@@ -325,6 +325,7 @@
                 await axios.all(axiosPromiseArray).then(() => {
                     // 合并chunks
                     const params = {
+                        file,
                         size: file.size,
                         name: file.name,
                         total: this.blockCount,
@@ -336,7 +337,8 @@
                         if (code === 0) {
                             this.progressBar = 100;
                             this.fileList[0].upload_status = this.progressBar + "%";
-                            this.fileList[0].url = data.path
+                            this.fileList[0].url = data.url
+                            console.log(this.fileList)
                             this.$message.success(message);
                             this.speed = "";
                             this.loadingStatus = false;
