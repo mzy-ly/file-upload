@@ -27,9 +27,11 @@
             background: url('../assets/image/bg.jpeg') no-repeat;
             background-size: cover;
         }
-        .desc{
+
+        .desc {
             text-align: center;
         }
+
         .desc h1 {
             font-size: 34px;
             margin: 0;
@@ -47,10 +49,11 @@
             width: 1000px;
             margin: 0 auto;
         }
-        .el-upload, .el-upload-dragger{
+
+        .el-upload,
+        .el-upload-dragger {
             width: 100%;
         }
-
     </style>
 </head>
 
@@ -118,9 +121,9 @@
         data() {
             const chunkSize = 2 * 1024 * 1024, // 每个切片的大小，2M
                 // 使用Blob.slice方法来对文件进行分割，兼容不同的浏览器
-                blobSlice = File.prototype.slice || File.prototype.mozSlice || File.prototype.webkitSlice;
+                blobSliceFn = File.prototype.slice || File.prototype.mozSlice || File.prototype.webkitSlice;
             return {
-                uploadUrl: '/upload',
+                uploadUrl: '/file/upload',
                 speed: "",
                 formValidate: {
                     file: null,
@@ -132,69 +135,60 @@
                 progressBar: 0,
                 cancelSource: null,
 
+                isSlice: false, // 判断是否切片上传
                 chunkSize,
-                blobSlice,
+                blobSliceFn,
+                blockCount: 0, // 分片总数
             };
-        },
-        created() {
-            
         },
         methods: {
             handleBeforeUpload(file) {
                 console.log('file===', file)
+                this.isSlice = file.size > this.chunkSize;
                 const extname = file.name.substring(file.name.lastIndexOf('.') + 1)
-                if (extname !== 'mp4') {
-                    this.$message({
-                        message: '上传文件只能是.mp4格式!',
-                        type: 'warning'
-                    })
-                    return false
+                // if (extname !== 'mp4') {
+                // this.$message({
+                //     message: '上传文件只能是.mp4格式!',
+                //     type: 'warning'
+                // })
+                // return false
+                // } else {
+                this.formValidate.file = file;
+                let size = '';
+                if (file.size / 1024 < 1024) {
+                    size = (file.size / 1024).toFixed(2) + "KB";
+                } else if (file.size / 1024 / 1024 < 1024) {
+                    size = (file.size / 1024 / 1024).toFixed(2) + "M";
                 } else {
-                    this.formValidate.file = file;
-                    let size = '';
-                    if (file.size / 1024 < 1024) {
-                        size = (file.size / 1024).toFixed(2) + "KB";
-                    } else if (file.size / 1024 / 1024 < 1024) {
-                        size = (file.size / 1024 / 1024).toFixed(2) + "M";
-                    } else {
-                        size = (file.size / 1024 / 1024 / 1024).toFixed(2) + "G";
-                    }
-                    const obj = {
-                        name: file.name,
-                        url: '',
-                        file,
-                        size,
-                        upload_status: '等待上传',
-                    }
-                    this.fileList.unshift(obj)
-                    return true
+                    size = (file.size / 1024 / 1024 / 1024).toFixed(2) + "G";
                 }
+                const obj = {
+                    name: file.name,
+                    url: '',
+                    file,
+                    size,
+                    upload_status: '等待上传',
+                }
+                this.fileList.unshift(obj)
+                return true
+                // }
             },
             upload(options) {
                 this.loadingStatus = true;
                 this.uploadStatus = true;
+                if (this.isSlice) {
+                    this.sliceUpload()
+                } else {
+                    this.normalUpload()
+                }
+            },
+            normalUpload() {
                 const formData = new FormData();
                 formData.append("file", this.formValidate.file);
                 let t0 = new Date(); // 文件开始上传时间
-                axios.post(this.uploadUrl, formData, {
-                    onUploadProgress: (progressEvent) => {
-                        this.progressBar = Math.round(
-                            progressEvent.loaded / progressEvent.total * 100
-                        );
-                        this.progressBar = this.progressBar >= 100 ? 99 : this.progressBar
-                        if (this.fileList[0]) {
-                            this.fileList[0].upload_status = this.progressBar + "%";
-                        }
-                        let t1 = new Date(); // 已上传文件大小时间
-                        // 计算出当前上传为多少kb/s
-                        let s = Math.round(
-                            progressEvent.loaded / 1024 / ((t1 - t0) / 1000)
-                        );
-                        if (s > 1024) {
-                            this.speed = (s / 1024).toFixed(2) + "M/s";
-                        } else {
-                            this.speed = s + "kb/s";
-                        }
+                axios.post('/upload', formData, {
+                    onUploadProgress: (progress) => {
+                        this.uploadProgress(progress)
                     },
 
                 }).then((res) => {
@@ -203,6 +197,7 @@
                     if (code === 0) {
                         this.progressBar = 100;
                         this.fileList[0].upload_status = this.progressBar + "%";
+                        this.fileList[0].url = data.path
                         this.$message.success(message);
                         this.speed = "";
                         this.loadingStatus = false;
@@ -213,8 +208,9 @@
                     this.$message.warning(error.message);
                 });
             },
-            reUpload(file) {
-                this.formValidate.file = file
+            reUpload(row) {
+                console.log(this.fileList, row)
+                this.formValidate.file = row.file
                 this.upload();
             },
             deleteFile(file) {
@@ -222,13 +218,144 @@
                 // 调接口
             },
 
+            uploadProgress(progress) {
+                console.log('进度条————————', progress)
+                const maxPercent = 100
+                if (this.isSlice) {
+                    this.progressBar = Math.round(
+                        progress.loaded / progress.total * (maxPercent / this.blockCount * progress.index)
+                    );
+                } else {
+                    this.progressBar = Math.round(
+                        progress.loaded / progress.total * maxPercent
+                    );
+                }
+
+                this.progressBar = this.progressBar >= maxPercent ? maxPercent - 1 : this.progressBar
+                if (this.fileList[0]) {
+                    this.fileList[0].upload_status = this.progressBar + "%";
+                }
+                // let t1 = new Date(); // 已上传文件大小时间
+                // // 计算出当前上传为多少kb/s
+                // let s = Math.round(
+                //     progress.loaded / 1024 / ((t1 - t0) / 1000)
+                // );
+                // if (s > 1024) {
+                //     this.speed = (s / 1024).toFixed(2) + "M/s";
+                // } else {
+                //     this.speed = s + "kb/s";
+                // }
+            },
+            // 分片上传————————————————————————
+            // 获取文件MD5值
             hashFile(file) {
                 return new Promise((resolve, reject) => {
-                    const chunkTotal = Math.ceil(file.size / this.chunkSize); //向上取整
-                    let currentChunkIndex = 0;
-                    const spark = new SpartMD5.ArrayBuffer();
-                    
-                })
+                    try {
+                        let currentChunkIndex = 0;
+                        const spark = new SparkMD5.ArrayBuffer();
+                        const fileReader = new FileReader();
+                        const loadNext = () => {
+                            const start = currentChunkIndex * this.chunkSize;
+                            const end = start + this.chunkSize >= file.size ? file.size : start + this.chunkSize;
+                            fileReader.readAsArrayBuffer(this.blobSliceFn.call(file, start, end));
+                        }
+                        fileReader.onload = e => {
+                            spark.append(e.target.result); // Append array buffer
+                            currentChunkIndex += 1;
+                            if (currentChunkIndex < this.blobSliceFn) {
+                                loadNext();
+                            } else {
+                                console.log('finished loading');
+                                const result = spark.end();
+                                // 如果单纯的使用result 作为hash值的时候, 如果文件内容相同，而名称不同的时候
+                                // 想保留两个文件无法保留。所以把文件名称加上。
+                                const sparkMd5 = new SparkMD5();
+                                sparkMd5.append(result);
+                                sparkMd5.append(file.name);
+                                resolve(sparkMd5.end());
+                            }
+                        };
+                        loadNext();
+                    } catch (error) {
+                        console.warn(error, '获取文件MD5异常');
+                        reject('获取文件MD5异常')
+                    }
+
+                }).catch(err => {
+                    console.log(err);
+                });
+            },
+            async sliceUpload() {
+                const file = this.formValidate.file;
+                if (!file) {
+                    alert('没有获取文件');
+                    return;
+                }
+                this.blockCount = Math.ceil(file.size / this.chunkSize); // 分片总数
+                const axiosPromiseArray = []; // axiosPromise数组
+                const hash = await this.hashFile(file); //文件 hash 
+                // 获取文件hash之后，如果需要做断点续传，可以根据hash值去后台进行校验。
+                // 看看是否已经上传过该文件，并且是否已经传送完成以及已经上传的切片。
+                console.log(22222, hash, this.blockCount);
+
+                for (let i = 0; i < this.blockCount; i++) {
+                    const start = i * this.chunkSize;
+                    const end = Math.min(file.size, start + this.chunkSize);
+                    // 构建表单
+                    const form = new FormData();
+                    form.append('file', this.blobSliceFn.call(file, start, end));
+                    form.append('name', file.name);
+                    form.append('total', this.blockCount);
+                    form.append('index', i);
+                    form.append('size', file.size);
+                    form.append('hash', hash);
+                    // ajax提交 分片，此时 content-type 为 multipart/form-data
+                    // 加入到 Promise 数组中
+                    axiosPromiseArray.push(axios.post('/file/upload', form, {
+                        onUploadProgress: (progress) => {
+                            progress.index = i + 1
+                            this.uploadProgress(progress)
+                        },
+                    }));
+                }
+                // 所有分片上传后，请求合并分片文件
+                this.mergeUpload(file, hash, axiosPromiseArray)
+            },
+            async mergeUpload(file, hash, axiosPromiseArray) {
+                await axios.all(axiosPromiseArray).then(() => {
+                    // 合并chunks
+                    const params = {
+                        size: file.size,
+                        name: file.name,
+                        total: this.blockCount,
+                        hash
+                    };
+                    axios.post('/file/merge_chunks', params).then((res, reject) => {
+                        console.log(res)
+                        const { code, data, message } = res.data;
+                        if (code === 0) {
+                            this.progressBar = 100;
+                            this.fileList[0].upload_status = this.progressBar + "%";
+                            this.fileList[0].url = data.path
+                            this.$message.success(message);
+                            this.speed = "";
+                            this.loadingStatus = false;
+                        } else {
+                            reject(res.data)
+                        }
+                    }).catch(err => {
+                        console.log(err);
+                        this.$message.warning(err.message);
+                        this.fileList[0].upload_status = '上传失败'
+                        this.speed = "";
+                        this.loadingStatus = false;
+                    });
+                }).catch((error) => {
+                    this.$message.warning(error.message);
+                    this.fileList[0].upload_status = '上传失败'
+                    this.speed = "";
+                    this.loadingStatus = false;
+                });
             }
         }
     })
