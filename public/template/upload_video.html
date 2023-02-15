@@ -85,15 +85,15 @@
                     <el-table-column prop="size" label="大小">
                         <template slot-scope="scope">
                             <div>
-                                <span v-text="speed?(speed+'  '+scope.row.size):scope.row.size"></span>
+                                <span v-text="scope.row.speed?(scope.row.speed+'  '+scope.row.size):scope.row.size"></span>
                             </div>
                         </template>
                     </el-table-column>
                     <el-table-column prop="upload_status" label="状态">
                         <template slot-scope="scope">
                             <div>
-                                <el-progress :percentage="progressBar" color="#22be4e"
-                                    v-if="loadingStatus"></el-progress>
+                                <el-progress :percentage="scope.row.progress" color="#22be4e"
+                                    v-if="scope.row.progress<100"></el-progress>
                                 <span :style="{'color': scope.row.upload_status !=='等待上传' ? '#22be4e' : ''}"
                                     v-text="scope.row.upload_status" v-else></span>
                             </div>
@@ -102,9 +102,9 @@
                     <el-table-column label="操作" width="100">
                         <template slot-scope="scope">
                             <div class="study-btn">
-                                <el-button type="text" @click="deleteFile(scope.row)"
-                                    v-if="loadingStatus">取消上传</el-button>
-                                <el-button type="text" @click="reUpload(scope.row)" icon="el-icon-refresh"
+                                <el-button type="text" @click="deleteFile(scope.$index)"
+                                    v-if="scope.row.progress<100">取消上传</el-button>
+                                <el-button type="text" @click="reUpload(scope.$index)" icon="el-icon-refresh"
                                     v-else>重新上传</el-button>
                             </div>
                         </template>
@@ -123,17 +123,10 @@
                 // 使用Blob.slice方法来对文件进行分割，兼容不同的浏览器
                 blobSliceFn = File.prototype.slice || File.prototype.mozSlice || File.prototype.webkitSlice;
             return {
-                uploadUrl: '/file/upload',
-                speed: "",
-                formValidate: {
-                    file: null,
-                },
-                loadingStatus: false, // 开始上传、停止上传、上传成功、上传失败
-                uploadStatus: false,
+                uploadUrl: '/upload',
                 fileList: [],
-                file_list: [],
-                progressBar: 0,
-                cancelSource: null,
+                currentIndex: 0, // 当前正在上传的文件
+                formValidate: null,
 
                 isSlice: false, // 判断是否切片上传
                 chunkSize,
@@ -153,7 +146,6 @@
                 // })
                 // return false
                 // } else {
-                this.formValidate.file = file;
                 let size = '';
                 if (file.size / 1024 < 1024) {
                     size = (file.size / 1024).toFixed(2) + "KB";
@@ -168,14 +160,15 @@
                     file,
                     size,
                     upload_status: '等待上传',
+                    progress: 0,
+                    speed: ''
                 }
                 this.fileList.unshift(obj)
+                this.currentIndex = 0
                 return true
                 // }
             },
             upload(options) {
-                this.loadingStatus = true;
-                this.uploadStatus = true;
                 if (this.isSlice) {
                     this.sliceUpload()
                 } else {
@@ -183,67 +176,61 @@
                 }
             },
             normalUpload() {
+                let formValidate = this.fileList[this.currentIndex]
                 const formData = new FormData();
-                formData.append("file", this.formValidate.file);
+                formData.append("file", formValidate.file);
                 let t0 = new Date(); // 文件开始上传时间
-                axios.post('/upload', formData, {
-                    onUploadProgress: (progress) => {
-                        this.uploadProgress(progress)
+                axios.post(this.uploadUrl, formData, {
+                    onUploadProgress: (progressEvent) => {
+                        this.uploadProgress(progressEvent, formValidate)
                     },
 
-                }).then((res) => {
+                }).then((res, reject) => {
                     console.log(res)
-                    const { code, data, message } = res.data;
+                    const { code } = res.data;
                     if (code === 0) {
-                        this.progressBar = 100;
-                        this.fileList[0].upload_status = this.progressBar + "%";
-                        this.fileList[0].url = data.url
-                        this.$message.success(message);
-                        this.speed = "";
-                        this.loadingStatus = false;
+                        this.handleUploadSuccess(formValidate, res.data)
                     } else {
-                        this.$message.warning(message);
+                        reject(res.data)
                     }
                 }).catch((error) => {
                     this.$message.warning(error.message);
                 });
             },
-            reUpload(row) {
-                console.log(this.fileList, row)
-                this.formValidate.file = row.file
+            reUpload(index) {
+                this.currentIndex = index
+                this.fileList[this.currentIndex].progress = 0
                 this.upload();
             },
-            deleteFile(file) {
-                console.log(file);
+            deleteFile(index) {
+                this.fileList.splice(index, 1)
                 // 调接口
             },
-
-            uploadProgress(progress) {
-                console.log('进度条————————', progress)
+            uploadProgress(progressEvent, formValidate) {
+                console.log('进度条————————', progressEvent)
                 const maxPercent = 100
                 if (this.isSlice) {
-                    this.progressBar = Math.round(
-                        progress.loaded / progress.total * (maxPercent / this.blockCount * progress.index)
+                    formValidate.progress = Math.round(
+                        progressEvent.loaded / progressEvent.total * (maxPercent / this.blockCount * progressEvent.index)
                     );
                 } else {
-                    this.progressBar = Math.round(
-                        progress.loaded / progress.total * maxPercent
+                    formValidate.progress = Math.round(
+                        progressEvent.loaded / progressEvent.total * maxPercent
                     );
                 }
 
-                this.progressBar = this.progressBar >= maxPercent ? maxPercent - 1 : this.progressBar
-                if (this.fileList[0]) {
-                    this.fileList[0].upload_status = this.progressBar + "%";
-                }
+                formValidate.progress = formValidate.progress >= maxPercent ? maxPercent - 1 : formValidate.progress
+                formValidate.upload_status = formValidate.progress + "%";
+                // debugger
                 // let t1 = new Date(); // 已上传文件大小时间
                 // // 计算出当前上传为多少kb/s
                 // let s = Math.round(
-                //     progress.loaded / 1024 / ((t1 - t0) / 1000)
+                //     progressEvent.loaded / 1024 / ((t1 - t0) / 1000)
                 // );
                 // if (s > 1024) {
-                //     this.speed = (s / 1024).toFixed(2) + "M/s";
+                //     formValidate.speed = (s / 1024).toFixed(2) + "M/s";
                 // } else {
-                //     this.speed = s + "kb/s";
+                //     formValidate.speed = s + "kb/s";
                 // }
             },
             // 分片上传————————————————————————
@@ -286,7 +273,8 @@
                 });
             },
             async sliceUpload() {
-                const file = this.formValidate.file;
+                let formValidate = this.fileList[this.currentIndex]
+                const file = formValidate.file
                 if (!file) {
                     alert('没有获取文件');
                     return;
@@ -312,9 +300,9 @@
                     // ajax提交 分片，此时 content-type 为 multipart/form-data
                     // 加入到 Promise 数组中
                     axiosPromiseArray.push(axios.post('/file/upload', form, {
-                        onUploadProgress: (progress) => {
-                            progress.index = i + 1
-                            this.uploadProgress(progress)
+                        onUploadProgress: (progressEvent) => {
+                            progressEvent.index = i + 1
+                            this.uploadProgress(progressEvent, formValidate)
                         },
                     }));
                 }
@@ -322,6 +310,7 @@
                 this.mergeUpload(file, hash, axiosPromiseArray)
             },
             async mergeUpload(file, hash, axiosPromiseArray) {
+                let formValidate = this.fileList[this.currentIndex]
                 await axios.all(axiosPromiseArray).then(() => {
                     // 合并chunks
                     const params = {
@@ -333,31 +322,31 @@
                     };
                     axios.post('/file/merge_chunks', params).then((res, reject) => {
                         console.log(res)
-                        const { code, data, message } = res.data;
+                        const { code } = res.data;
                         if (code === 0) {
-                            this.progressBar = 100;
-                            this.fileList[0].upload_status = this.progressBar + "%";
-                            this.fileList[0].url = data.url
-                            console.log(this.fileList)
-                            this.$message.success(message);
-                            this.speed = "";
-                            this.loadingStatus = false;
+                            this.handleUploadSuccess(formValidate, res.data)
                         } else {
                             reject(res.data)
                         }
                     }).catch(err => {
-                        console.log(err);
-                        this.$message.warning(err.message);
-                        this.fileList[0].upload_status = '上传失败'
-                        this.speed = "";
-                        this.loadingStatus = false;
+                        this.handleUploadFail(formValidate, error)
                     });
                 }).catch((error) => {
-                    this.$message.warning(error.message);
-                    this.fileList[0].upload_status = '上传失败'
-                    this.speed = "";
-                    this.loadingStatus = false;
+                    this.handleUploadFail(formValidate, error)
                 });
+            },
+            handleUploadSuccess(formValidate, response) {
+                formValidate.progress = 100;
+                formValidate.upload_status = formValidate.progress + "%";
+                formValidate.speed = '';
+                formValidate.name = response.data.filename || response.data.name;
+                formValidate.url = response.data.url;
+                this.$message.success(response.message);
+            },
+            handleUploadFail(formValidate, error) {
+                formValidate.upload_status = '上传失败'
+                formValidate.speed = '';
+                this.$message.warning(error.message);
             }
         }
     })
