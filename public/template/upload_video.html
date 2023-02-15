@@ -132,6 +132,7 @@
                 chunkSize,
                 blobSliceFn,
                 blockCount: 0, // 分片总数
+                indexArr: []
             };
         },
         methods: {
@@ -169,6 +170,7 @@
                 // }
             },
             upload(options) {
+                this.indexArr = []
                 if (this.isSlice) {
                     this.sliceUpload()
                 } else {
@@ -210,8 +212,10 @@
                 console.log('进度条————————', progressEvent)
                 const maxPercent = 100
                 if (this.isSlice) {
+                    this.indexArr.push(progressEvent.index);
+                    const maxIndex = Math.max(...this.indexArr)
                     formValidate.progress = Math.round(
-                        progressEvent.loaded / progressEvent.total * (maxPercent / this.blockCount * progressEvent.index)
+                        progressEvent.loaded / progressEvent.total * (maxPercent / this.blockCount * maxIndex)
                     );
                 } else {
                     formValidate.progress = Math.round(

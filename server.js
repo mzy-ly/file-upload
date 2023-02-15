@@ -143,6 +143,7 @@ app.post('/file/merge_chunks', (req, res) => {
     if (chunks.length !== total || chunks.length === 0) {
         // ctx.status = 200;
         res.end({
+            code: 1,
             message: '切片文件数量不符合'
         });
         return;
@@ -150,9 +151,10 @@ app.post('/file/merge_chunks', (req, res) => {
     for (let i = 0; i < total; i++) {
         // 追加写入到文件中
         fs.appendFileSync(filePath, fs.readFileSync(chunksPath + hash + '-' + i));
-        // 删除本次使用的chunk    
+        // 删除本次使用的chunk文件
         fs.unlinkSync(chunksPath + hash + '-' + i);
     }
+    // 删除切片存放的目录
     fs.rmdirSync(chunksPath);
     // 文件合并成功，可以把文件信息进行入库。
     return res.json({
