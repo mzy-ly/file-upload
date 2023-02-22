@@ -103,7 +103,7 @@ app.post('/upload', upload.single('file'), (req, res) => {
  * single(fieldname)
  * Accept a single file with the name fieldname. The single file will be stored in req.file.
  */
-app.post('/file/upload', sliceUpload.single('file'), (req, res) => {
+app.post('/file/sliceUpload', sliceUpload.single('file'), (req, res) => {
     console.log('file upload...', req.body)
     // 根据文件hash创建文件夹，把默认上传的文件移动当前hash文件夹下。方便后续文件合并。
     const {
@@ -169,5 +169,27 @@ app.post('/file/merge_chunks', (req, res) => {
     })
 })
 
+app.post('/file/cancelUpload', (req, res) => {
+    const {
+        name,
+        total,
+        hash
+    } = req.body;
+
+    const chunksPath = path.join(uploadPath, hash, '/');
+    // 读取所有的chunks 文件名存放在数组中
+    const chunks = fs.readdirSync(chunksPath);
+    for (let i = 0; i < chunks.length; i++) {
+        // 删除本次使用的chunk文件
+        fs.unlinkSync(chunksPath + hash + '-' + i);
+    }
+    // 删除切片存放的目录
+    fs.rmdirSync(chunksPath);
+    return res.json({
+        code: 0,
+        data: '',
+        message: '取消成功'
+    })
+})
 
 module.exports = app;

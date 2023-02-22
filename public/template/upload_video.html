@@ -85,7 +85,8 @@
                     <el-table-column prop="size" label="大小">
                         <template slot-scope="scope">
                             <div>
-                                <span v-text="scope.row.speed?(scope.row.speed+'  '+scope.row.size):scope.row.size"></span>
+                                <span
+                                    v-text="scope.row.speed?(scope.row.speed+'  '+scope.row.size):scope.row.size"></span>
                             </div>
                         </template>
                     </el-table-column>
@@ -102,7 +103,7 @@
                     <el-table-column label="操作" width="100">
                         <template slot-scope="scope">
                             <div class="study-btn">
-                                <el-button type="text" @click="deleteFile(scope.$index)"
+                                <el-button type="text" @click="cancelUpload(scope.$index)"
                                     v-if="scope.row.progress<100">取消上传</el-button>
                                 <el-button type="text" @click="reUpload(scope.$index)" icon="el-icon-refresh"
                                     v-else>重新上传</el-button>
@@ -162,7 +163,8 @@
                     size,
                     upload_status: '等待上传',
                     progress: 0,
-                    speed: ''
+                    speed: '',
+                    Cancel: axios.CancelToken.source()
                 }
                 this.fileList.unshift(obj)
                 this.currentIndex = 0
@@ -204,9 +206,28 @@
                 this.fileList[this.currentIndex].progress = 0
                 this.upload();
             },
-            deleteFile(index) {
-                this.fileList.splice(index, 1)
-                // 调接口
+            cancelUpload(index) {
+                const delFile = this.fileList[index]
+                console.log(delFile)
+                this.$confirm('确定取消上传吗？', '提示', {
+                    confirmButtonText: '确定',
+                    cancelButtonText: '取消',
+                    type: 'warning',
+                    closeOnClickModal: false,
+                    showClose: false
+                }).then(() => {
+                    delFile.Cancel.cancel();
+                    if(delFile.file.size > this.chunkSize) {
+                        axios.post('/file/cancelUpload', delFile).then(res => {
+                            console.log('取消上传————', res)
+                            this.fileList.splice(index, 1)
+                        }).catch(error => {
+                            console.error(error)
+                            this.$message.warning('网络不稳定，请重试');
+                        })
+                    }
+                    
+                })
             },
             uploadProgress(progressEvent, formValidate) {
                 console.log('进度条————————', progressEvent)
@@ -289,6 +310,8 @@
                 // 获取文件hash之后，如果需要做断点续传，可以根据hash值去后台进行校验。
                 // 看看是否已经上传过该文件，并且是否已经传送完成以及已经上传的切片。
                 console.log(22222, hash, this.blockCount);
+                formValidate.hash = hash
+                formValidate.total = this.blockCount
 
                 for (let i = 0; i < this.blockCount; i++) {
                     const start = i * this.chunkSize;
@@ -303,11 +326,12 @@
                     form.append('hash', hash);
                     // ajax提交 分片，此时 content-type 为 multipart/form-data
                     // 加入到 Promise 数组中
-                    axiosPromiseArray.push(axios.post('/file/upload', form, {
+                    axiosPromiseArray.push(axios.post('/file/sliceUpload', form, {
                         onUploadProgress: (progressEvent) => {
                             progressEvent.index = i + 1
                             this.uploadProgress(progressEvent, formValidate)
                         },
+                        cancelToken: formValidate.Cancel.token
                     }));
                 }
                 // 所有分片上传后，请求合并分片文件
@@ -345,12 +369,10 @@
                 formValidate.speed = '';
                 formValidate.name = response.data.filename || response.data.name;
                 formValidate.url = response.data.url;
-                this.$message.success(response.message);
             },
             handleUploadFail(formValidate, error) {
                 formValidate.upload_status = '上传失败'
                 formValidate.speed = '';
-                this.$message.warning(error.message);
             }
         }
     })
